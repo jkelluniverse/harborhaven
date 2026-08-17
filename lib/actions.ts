@@ -13,6 +13,9 @@ import { addLineItem, addPermit, addExpenseToBill, removeLineItem } from "@/lib/
 import { markPayablePaid, undoPayablePaid } from "@/lib/services/payables";
 import { sendInvoiceViaSquare, cancelInvoiceEverywhere } from "@/lib/services/square-invoices";
 import { sendEstimate } from "@/lib/services/estimates";
+import { createLeadOrAppend, startEstimate, archiveLead } from "@/lib/services/leads";
+import { logVisit, sendVisitReport, type ChecklistEntry } from "@/lib/services/visits";
+import { sendSms } from "@/lib/sms";
 import { prisma } from "@/lib/db";
 
 export type FormState = { error?: string; confirm?: string } | null;
@@ -22,7 +25,7 @@ export async function loginAction(_prev: FormState, formData: FormData): Promise
   const password = String(formData.get("password") ?? "");
   const session = await authLogin(username, password);
   if (!session) return { error: "Wrong username or password. Try again." };
-  redirect("/jobs");
+  redirect("/app/jobs");
 }
 
 export async function logoutAction() {
@@ -34,7 +37,8 @@ const jobSchema = z.object({
   clientName: z.string().min(1, "Client name is required"),
   name: z.string().min(1, "Job name is required"),
   address: z.string().min(1, "Address is required"),
-  type: z.enum(["PERMIT_ONLY", "PROJECT", "OTHER"]),
+  type: z.enum(["PERMIT_ONLY", "PROJECT", "HOME_WATCH", "OTHER"]),
+  visitFrequency: z.enum(["WEEKLY", "BIWEEKLY", "CUSTOM"]).optional(),
 });
 
 export async function createJobAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -44,6 +48,7 @@ export async function createJobAction(_prev: FormState, formData: FormData): Pro
     name: formData.get("name"),
     address: formData.get("address"),
     type: formData.get("type"),
+    visitFrequency: formData.get("visitFrequency") || undefined,
   });
   if (!parsed.success) return { error: parsed.error.issues[0].message };
 
@@ -55,21 +60,21 @@ export async function createJobAction(_prev: FormState, formData: FormData): Pro
   }
 
   const job = await createJob({ ...parsed.data, createdBy: session.username });
-  redirect(`/jobs/${job.id}`);
+  redirect(`/app/jobs/${job.id}`);
 }
 
 export async function updateJobStatusAction(jobId: number, formData: FormData) {
   const session = await requireSession();
   const status = z.enum(["ESTIMATE", "ACTIVE", "DONE", "PAID"]).parse(formData.get("status"));
   await updateJobStatus(jobId, status, session.username);
-  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath(`/app/jobs/${jobId}`);
 }
 
 export async function addJobNoteAction(jobId: number, formData: FormData) {
   const session = await requireSession();
   const note = String(formData.get("note") ?? "").trim();
   if (note) await addJobNote(jobId, note, session.username);
-  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath(`/app/jobs/${jobId}`);
 }
 
 export async function addExpenseAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -100,7 +105,7 @@ export async function addExpenseAction(_prev: FormState, formData: FormData): Pr
     notes: String(formData.get("notes") ?? "") || null,
     photoBase64,
   });
-  redirect(`/jobs/${jobId}`);
+  redirect(`/app/jobs/${jobId}`);
 }
 
 export async function createInvoiceAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -122,7 +127,7 @@ export async function createInvoiceAction(_prev: FormState, formData: FormData):
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Couldn't create the invoice." };
   }
-  redirect(`/jobs/${jobId}`);
+  redirect(`/app/jobs/${jobId}`);
 }
 
 // ---- Line items & permits ----
@@ -145,21 +150,21 @@ export async function addLineItemAction(_prev: FormState, formData: FormData): P
   } else {
     await addLineItem({ jobId, description, qty, unitPrice, kind });
   }
-  redirect(`/jobs/${jobId}`);
+  redirect(`/app/jobs/${jobId}`);
 }
 
 export async function addPermitAction(jobId: number) {
   await requireSession();
   await addPermit(jobId);
-  revalidatePath(`/jobs/${jobId}`);
-  revalidatePath("/doug");
+  revalidatePath(`/app/jobs/${jobId}`);
+  revalidatePath("/app/doug");
 }
 
 export async function addExpenseToBillAction(jobId: number, formData: FormData) {
   await requireSession();
   const expenseId = Number(formData.get("expenseId"));
   await addExpenseToBill(expenseId);
-  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath(`/app/jobs/${jobId}`);
 }
 
 export async function removeLineItemAction(jobId: number, formData: FormData): Promise<void> {
@@ -169,10 +174,10 @@ export async function removeLineItemAction(jobId: number, formData: FormData): P
     await removeLineItem(lineItemId);
   } catch (e) {
     // Surface the plain-English block reason on the job page.
-    redirect(`/jobs/${jobId}?msg=${encodeURIComponent(e instanceof Error ? e.message : "Couldn't remove item")}`);
+    redirect(`/app/jobs/${jobId}?msg=${encodeURIComponent(e instanceof Error ? e.message : "Couldn't remove item")}`);
   }
-  revalidatePath(`/jobs/${jobId}`);
-  revalidatePath("/doug");
+  revalidatePath(`/app/jobs/${jobId}`);
+  revalidatePath("/app/doug");
 }
 
 // ---- Doug / payables ----
@@ -182,7 +187,7 @@ export async function markPayablePaidAction(formData: FormData) {
   const payableId = Number(formData.get("payableId"));
   const paidVia = String(formData.get("paidVia") ?? "Other");
   await markPayablePaid(payableId, paidVia);
-  revalidatePath("/doug");
+  revalidatePath("/app/doug");
 }
 
 export async function undoPayablePaidAction(formData: FormData) {
@@ -193,7 +198,7 @@ export async function undoPayablePaidAction(formData: FormData) {
   } catch {
     // window passed — the page re-render will drop the undo button
   }
-  revalidatePath("/doug");
+  revalidatePath("/app/doug");
 }
 
 // ---- Square invoice lifecycle ----
@@ -201,11 +206,11 @@ export async function undoPayablePaidAction(formData: FormData) {
 export async function sendInvoiceAction(invoiceId: number): Promise<void> {
   await requireSession();
   const result = await sendInvoiceViaSquare(invoiceId);
-  revalidatePath(`/invoices/${invoiceId}`);
+  revalidatePath(`/app/invoices/${invoiceId}`);
   if (!result.ok) {
-    redirect(`/invoices/${invoiceId}?msg=${encodeURIComponent(result.error)}`);
+    redirect(`/app/invoices/${invoiceId}?msg=${encodeURIComponent(result.error)}`);
   }
-  redirect(`/invoices/${invoiceId}?msg=${encodeURIComponent("Invoice sent — Square emailed the payment link.")}`);
+  redirect(`/app/invoices/${invoiceId}?msg=${encodeURIComponent("Invoice sent — Square emailed the payment link.")}`);
 }
 
 export async function cancelInvoiceAction(invoiceId: number): Promise<void> {
@@ -213,10 +218,10 @@ export async function cancelInvoiceAction(invoiceId: number): Promise<void> {
   try {
     await cancelInvoiceEverywhere(invoiceId);
   } catch (e) {
-    redirect(`/invoices/${invoiceId}?msg=${encodeURIComponent(e instanceof Error ? e.message : "Couldn't cancel.")}`);
+    redirect(`/app/invoices/${invoiceId}?msg=${encodeURIComponent(e instanceof Error ? e.message : "Couldn't cancel.")}`);
   }
-  revalidatePath(`/invoices/${invoiceId}`);
-  redirect(`/invoices/${invoiceId}?msg=${encodeURIComponent("Invoice canceled.")}`);
+  revalidatePath(`/app/invoices/${invoiceId}`);
+  redirect(`/app/invoices/${invoiceId}?msg=${encodeURIComponent("Invoice canceled.")}`);
 }
 
 export async function markPaidOtherWayAction(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -228,8 +233,8 @@ export async function markPaidOtherWayAction(_prev: FormState, formData: FormDat
   if (!note) return { error: "Say how it was paid (Venmo, Zelle, check, cash…)." };
   await recordPayment({ invoiceId, amount, method: "OTHER", note });
   const inv = await prisma.invoice.findUnique({ where: { id: invoiceId }, select: { jobId: true } });
-  revalidatePath(`/invoices/${invoiceId}`);
-  if (inv) revalidatePath(`/jobs/${inv.jobId}`);
+  revalidatePath(`/app/invoices/${invoiceId}`);
+  if (inv) revalidatePath(`/app/jobs/${inv.jobId}`);
   return null;
 }
 
@@ -241,13 +246,143 @@ export async function sendEstimateAction(jobId: number): Promise<void> {
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
   const proto = h.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const result = await sendEstimate(jobId, `${proto}://${host}`);
-  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath(`/app/jobs/${jobId}`);
   const msg = !result.ok
     ? result.error
     : result.emailed
       ? "Estimate emailed."
       : `Estimate page ready — share this link: ${result.url}`;
-  redirect(`/jobs/${jobId}?msg=${encodeURIComponent(msg)}`);
+  redirect(`/app/jobs/${jobId}?msg=${encodeURIComponent(msg)}`);
+}
+
+// ---- Leads ----
+
+export async function startEstimateAction(clientId: number) {
+  const session = await requireSession();
+  const job = await startEstimate(clientId, session.username);
+  revalidatePath("/app/clients");
+  redirect(`/app/jobs/${job.id}`);
+}
+
+export async function archiveLeadAction(clientId: number, formData: FormData) {
+  await requireSession();
+  const reason = String(formData.get("reason") ?? "").trim();
+  await archiveLead(clientId, reason);
+  revalidatePath("/app/clients");
+  redirect("/app/clients");
+}
+
+export async function appendLeadNoteAction(clientId: number, formData: FormData) {
+  const session = await requireSession();
+  const note = String(formData.get("note") ?? "").trim();
+  if (note) {
+    const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
+    const line = `${new Date().toLocaleDateString("en-US")} (${session.username}): ${note}`;
+    await prisma.client.update({
+      where: { id: clientId },
+      data: { leadNotes: client.leadNotes ? `${client.leadNotes}\n\n${line}` : line },
+    });
+  }
+  revalidatePath(`/app/clients/${clientId}`);
+}
+
+/** Manual "Add client" — writes the identical lead-shaped record. */
+export async function addClientLeadAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  await requireSession();
+  const name = String(formData.get("name") ?? "").trim();
+  const phone = String(formData.get("phone") ?? "").trim();
+  if (!name) return { error: "Name is required." };
+  if (!phone) return { error: "Phone is required." };
+  const source = z.enum(["WEBSITE", "PHONE", "REFERRAL", "OTHER"]).catch("PHONE").parse(formData.get("source"));
+  const service = z
+    .enum(["Home Watch", "Permit only", "Project", "Something else"])
+    .catch("Something else")
+    .parse(formData.get("serviceRequested"));
+  const { client } = await createLeadOrAppend({
+    name,
+    phone,
+    email: String(formData.get("email") ?? "").trim() || null,
+    propertyAddress: String(formData.get("propertyAddress") ?? "").trim() || "—",
+    serviceRequested: service,
+    details: String(formData.get("details") ?? "").trim() || null,
+    preferredDates: String(formData.get("preferredDates") ?? "").trim() || null,
+    source,
+  });
+  redirect(`/app/clients/${client.id}`);
+}
+
+// ---- Home-watch visits ----
+
+export async function logVisitAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  await requireSession();
+  const jobId = Number(formData.get("jobId"));
+  const sendReport = formData.get("sendReport") === "yes";
+
+  let checklist: ChecklistEntry[];
+  try {
+    checklist = JSON.parse(String(formData.get("checklist") ?? "[]")) as ChecklistEntry[];
+    if (!Array.isArray(checklist) || checklist.length === 0) throw new Error();
+  } catch {
+    return { error: "Checklist didn't come through — try again." };
+  }
+
+  const photosBase64: string[] = [];
+  for (const value of formData.getAll("photos")) {
+    if (value instanceof File && value.size > 0) {
+      if (value.size > 10 * 1024 * 1024) return { error: "One of the photos is too large (10 MB max)." };
+      const buf = Buffer.from(await value.arrayBuffer());
+      photosBase64.push(`data:${value.type || "image/jpeg"};base64,${buf.toString("base64")}`);
+    }
+  }
+
+  const visit = await logVisit({
+    jobId,
+    checklist,
+    notes: String(formData.get("notes") ?? "") || null,
+    photosBase64,
+  });
+
+  let msg = "Visit logged.";
+  if (sendReport) {
+    const result = await sendVisitReport(visit.id);
+    msg = !result.ok
+      ? result.error
+      : result.emailed
+        ? "Visit logged and report sent."
+        : "Visit logged — email isn't set up, so the report wasn't sent.";
+  }
+  redirect(`/app/jobs/${jobId}?msg=${encodeURIComponent(msg)}`);
+}
+
+export async function resendVisitReportAction(visitId: number): Promise<void> {
+  await requireSession();
+  const visit = await prisma.visit.findUniqueOrThrow({ where: { id: visitId } });
+  const result = await sendVisitReport(visitId);
+  const msg = !result.ok
+    ? result.error
+    : result.emailed
+      ? "Report sent."
+      : "Email isn't set up — report stored but not sent.";
+  redirect(`/app/jobs/${visit.jobId}?msg=${encodeURIComponent(msg)}`);
+}
+
+// ---- SMS the payment link ----
+
+export async function textInvoiceLinkAction(invoiceId: number): Promise<void> {
+  await requireSession();
+  const invoice = await prisma.invoice.findUniqueOrThrow({
+    where: { id: invoiceId },
+    include: { job: { include: { client: true } } },
+  });
+  const phone = invoice.job.client.phone;
+  if (!invoice.publicUrl || !phone) {
+    redirect(`/app/invoices/${invoiceId}?msg=${encodeURIComponent(!phone ? "No phone on file for this client." : "Send the invoice first — there's no payment link yet.")}`);
+  }
+  const ok = await sendSms(
+    phone!,
+    `Harbor Haven Home Watch — your invoice${invoice.stage ? ` (${invoice.stage})` : ""} is ready. Pay by bank transfer (free) or card: ${invoice.publicUrl}`,
+  );
+  redirect(`/app/invoices/${invoiceId}?msg=${encodeURIComponent(ok ? "Payment link texted." : "Text didn't go through (SMS not set up?) — the link still works from the button above.")}`);
 }
 
 // ---- Me / change password ----
@@ -275,8 +410,8 @@ export async function recordPaymentAction(jobId: number, formData: FormData) {
     method,
     note: String(formData.get("note") ?? "") || null,
   });
-  revalidatePath(`/jobs/${jobId}`);
-  revalidatePath("/invoices");
+  revalidatePath(`/app/jobs/${jobId}`);
+  revalidatePath("/app/invoices");
 }
 
 const clientSchema = z.object({
@@ -298,7 +433,7 @@ export async function createClientAction(_prev: FormState, formData: FormData): 
   }
 
   const client = await createClient(parsed.data);
-  redirect(`/clients/${client.id}`);
+  redirect(`/app/clients/${client.id}`);
 }
 
 export async function updateClientAction(clientId: number, formData: FormData) {
@@ -308,5 +443,5 @@ export async function updateClientAction(clientId: number, formData: FormData) {
     email: String(formData.get("email") ?? ""),
     notes: String(formData.get("notes") ?? ""),
   });
-  revalidatePath(`/clients/${clientId}`);
+  revalidatePath(`/app/clients/${clientId}`);
 }

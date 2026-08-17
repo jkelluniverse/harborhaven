@@ -8,6 +8,8 @@ export const SETTING_DEFAULTS = {
   permit_payable: "500",
   permit_payee_name: "Doug Prestier",
   square_location_id: "",
+  // Per-visit home-watch rate — placeholder until Chris prices it.
+  visit_rate: "75",
 } as const;
 
 export type SettingKey = keyof typeof SETTING_DEFAULTS;

@@ -15,7 +15,27 @@ enum Role {
 enum JobType {
   PERMIT_ONLY
   PROJECT
+  HOME_WATCH
   OTHER
+}
+
+enum ClientStatus {
+  LEAD
+  ACTIVE
+  ARCHIVED
+}
+
+enum ClientSource {
+  WEBSITE
+  PHONE
+  REFERRAL
+  OTHER
+}
+
+enum VisitFrequency {
+  WEEKLY
+  BIWEEKLY
+  CUSTOM
 }
 
 enum JobStatus {
@@ -61,15 +81,23 @@ model User {
 }
 
 model Client {
-  id               Int      @id @default(autoincrement())
-  name             String   @unique
+  id               Int          @id @default(autoincrement())
+  name             String       @unique
   phone            String?
   email            String?
   notes            String?
+  // Lead intake (website form / phone). LEAD until "Start estimate" flips it.
+  status           ClientStatus @default(LEAD)
+  source           ClientSource @default(OTHER)
+  propertyAddress  String?
+  serviceRequested String?
+  leadNotes        String?
+  preferredDates   String?
+  archiveReason    String?
   // Square Customer linked to this client (upserted on first invoice send).
   squareCustomerId String?
   jobs             Job[]
-  createdAt        DateTime @default(now())
+  createdAt        DateTime     @default(now())
 }
 
 model Job {
@@ -86,6 +114,12 @@ model Job {
   // Read-only public estimate page lives at /e/[estimateToken].
   estimateToken  String?   @unique
   estimateSentAt DateTime?
+  // Home watch: schedule + per-visit rate. Home-watch jobs stay ACTIVE
+  // indefinitely and are never auto-flipped PAID.
+  visitFrequency VisitFrequency?
+  visitRate      Decimal?  @db.Decimal(12, 2)
+  nextVisitDue   DateTime?
+  visits         Visit[]
   expenses  Expense[]
   invoices  Invoice[]
   payments  Payment[]
@@ -195,6 +229,33 @@ model WebhookEvent {
   id          String    @id
   processedAt DateTime?
   createdAt   DateTime  @default(now())
+}
+
+/// One home-watch visit: checklist results, photos, notes, and the sent
+/// report (stored so it can be resent).
+model Visit {
+  id           Int       @id @default(autoincrement())
+  job          Job       @relation(fields: [jobId], references: [id])
+  jobId        Int
+  visitedAt    DateTime  @default(now())
+  // [{ item: "AC/thermostat", ok: false, note?: "set to 82" }, …]
+  checklist    Json
+  notes        String?
+  // [{ key, url }] via the R2 seam (lib/storage.ts)
+  photos       Json      @default("[]")
+  reportHtml   String?
+  reportSentAt DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+/// Every outbound SMS, with delivery status (Twilio sid when accepted).
+model SmsLog {
+  id          Int      @id @default(autoincrement())
+  to          String
+  body        String
+  status      String // sent | failed | skipped (unconfigured)
+  providerSid String?
+  createdAt   DateTime @default(now())
 }
 
 model JobNote {

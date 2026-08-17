@@ -6,6 +6,7 @@
 import { randomBytes } from "crypto";
 import { prisma } from "@/lib/db";
 import { sendEmail, emailConfigured } from "@/lib/email";
+import { sendSms } from "@/lib/sms";
 import { lineItemTotal } from "./line-items";
 
 export async function ensureEstimateToken(jobId: number): Promise<string> {
@@ -67,6 +68,14 @@ export async function sendEstimate(jobId: number, appBaseUrl: string): Promise<S
         </div>`,
     });
   }
+  // Text the link too, when we can — belt and suspenders for low-email clients.
+  if (job.client.phone) {
+    void sendSms(
+      job.client.phone,
+      `Harbor Haven Home Watch — your estimate for "${job.name}" is ready: ${url}`,
+    ).catch(() => undefined);
+  }
+
   await prisma.job.update({ where: { id: jobId }, data: { estimateSentAt: new Date() } });
   return { ok: true, emailed, url };
 }

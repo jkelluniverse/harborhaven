@@ -194,13 +194,14 @@ export async function recordPayment(input: {
     await prisma.invoice.update({ where: { id: invoice.id }, data: { status: "PAID" } });
   }
 
-  // Job flips PAID when every non-canceled invoice is paid.
+  // Job flips PAID when every non-canceled invoice is paid — except
+  // home-watch jobs, which are a standing schedule and stay ACTIVE.
   const invoices = await prisma.invoice.findMany({
     where: { jobId: invoice.jobId, status: { not: "CANCELED" } },
   });
   if (invoices.length > 0 && invoices.every((i) => i.status === "PAID")) {
     const job = await prisma.job.findUniqueOrThrow({ where: { id: invoice.jobId } });
-    if (job.status !== "PAID") {
+    if (job.status !== "PAID" && job.type !== "HOME_WATCH") {
       await prisma.statusHistory.create({
         data: {
           jobId: job.id,

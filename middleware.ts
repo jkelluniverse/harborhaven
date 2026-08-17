@@ -1,13 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 
-// /e/ = public read-only estimate pages; the Square webhook authenticates by
-// HMAC signature, not session.
-const PUBLIC_PATHS = ["/login", "/e/", "/api/square/webhook"];
-
+// One app, one domain: everything under /app and /api/app is the owner app
+// and requires a session. Everything else — the marketing site, the quote
+// form, /login, the public estimate pages (/e/[token]), and the Square
+// webhook (HMAC-authenticated, not session) — is public.
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) return NextResponse.next();
+  const isOwnerRoute = pathname === "/app" || pathname.startsWith("/app/") || pathname.startsWith("/api/app");
+  if (!isOwnerRoute) return NextResponse.next();
 
   const token = req.cookies.get("hh_session")?.value;
   if (token && process.env.AUTH_SECRET) {
@@ -24,6 +25,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Everything except Next internals and static assets.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|ico)).*)"],
+  matcher: ["/app/:path*", "/app", "/api/app/:path*"],
 };

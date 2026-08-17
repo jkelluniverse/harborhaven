@@ -74,6 +74,7 @@ export function StatusBadge({ status }: { status: string }) {
 export const JOB_TYPE_LABEL: Record<string, string> = {
   PERMIT_ONLY: "Permit only",
   PROJECT: "Project",
+  HOME_WATCH: "Home watch",
   OTHER: "Other",
 };
 

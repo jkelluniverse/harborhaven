@@ -5,9 +5,9 @@
  * name — no formatted job-number scheme.
  */
 import { prisma } from "@/lib/db";
-import type { Job, JobStatus, JobType, Prisma } from "@prisma/client";
+import type { Job, JobStatus, JobType, VisitFrequency, Prisma } from "@prisma/client";
 import { ensureClient } from "./clients";
-import { getMarkupDefault } from "./settings";
+import { getMarkupDefault, getNumberSetting } from "./settings";
 
 export interface CreateJobInput {
   clientName: string;
@@ -15,6 +15,8 @@ export interface CreateJobInput {
   address: string;
   type: JobType;
   markup?: number;
+  visitFrequency?: VisitFrequency;
+  visitRate?: number;
   createdBy: string;
 }
 
@@ -24,14 +26,26 @@ export async function createJob(input: CreateJobInput): Promise<Job> {
 
   const markup = input.markup ?? (await getMarkupDefault());
 
+  // Home-watch jobs skip the estimate stage: they're a standing schedule that
+  // stays ACTIVE indefinitely, with the first visit due immediately.
+  const isHomeWatch = input.type === "HOME_WATCH";
+  const initialStatus = isHomeWatch ? ("ACTIVE" as const) : ("ESTIMATE" as const);
+
   const job = await prisma.job.create({
     data: {
       clientId: client.id,
       name: input.name.trim(),
       address: input.address.trim(),
       type: input.type,
-      status: "ESTIMATE",
+      status: initialStatus,
       markup,
+      ...(isHomeWatch
+        ? {
+            visitFrequency: input.visitFrequency ?? "WEEKLY",
+            visitRate: input.visitRate ?? (await getNumberSetting("visit_rate")),
+            nextVisitDue: new Date(),
+          }
+        : {}),
     },
   });
 
@@ -39,7 +53,7 @@ export async function createJob(input: CreateJobInput): Promise<Job> {
     data: {
       jobId: job.id,
       fromStatus: null,
-      toStatus: "ESTIMATE",
+      toStatus: initialStatus,
       changedBy: input.createdBy,
       note: "Job created",
     },
@@ -93,6 +107,7 @@ export async function getJobDetail(jobId: number) {
       invoices: { include: { payments: true }, orderBy: { issuedAt: "asc" } },
       lineItems: { orderBy: { createdAt: "asc" } },
       payables: true,
+      visits: { orderBy: { visitedAt: "desc" } },
       notes: { orderBy: { createdAt: "desc" } },
       history: { orderBy: { changedAt: "desc" } },
     },
