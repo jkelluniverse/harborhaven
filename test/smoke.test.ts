@@ -11,7 +11,7 @@ import { prisma } from "@/lib/db";
 import { createClient, findNearMatch } from "@/lib/services/clients";
 import { createJob, updateJobStatus, getJobDetail } from "@/lib/services/jobs";
 import { addExpense } from "@/lib/services/expenses";
-import { createInvoice, recordPayment, getJobMoneySummary } from "@/lib/services/invoices";
+import { createDepositInvoice, recordPayment, getJobMoneySummary } from "@/lib/services/invoices";
 
 const RUN = `smoke_${Date.now()}`;
 const CLIENT_NAME = `Smoke Test Client ${RUN}`;
@@ -28,6 +28,8 @@ afterAll(async () => {
   const jobs = await prisma.job.findMany({ where: { client: { name: CLIENT_NAME } } });
   const ids = jobs.map((j) => j.id);
   await prisma.payment.deleteMany({ where: { jobId: { in: ids } } });
+  await prisma.payable.deleteMany({ where: { jobId: { in: ids } } });
+  await prisma.lineItem.deleteMany({ where: { jobId: { in: ids } } });
   await prisma.invoice.deleteMany({ where: { jobId: { in: ids } } });
   await prisma.expense.deleteMany({ where: { jobId: { in: ids } } });
   await prisma.jobNote.deleteMany({ where: { jobId: { in: ids } } });
@@ -80,11 +82,12 @@ describe("write path", () => {
 
   it("supports staged billing: two invoices on one job", async () => {
     await updateJobStatus(jobId, "ACTIVE", "smoke");
-    const first = await createInvoice({ jobId, totalAmount: 1000 });
-    const second = await createInvoice({ jobId, totalAmount: 500 });
+    const first = await createDepositInvoice({ jobId, amount: 1000 });
+    const second = await createDepositInvoice({ jobId, amount: 500, stage: "Progress" });
     expect(first.jobId).toBe(jobId);
     expect(second.jobId).toBe(jobId);
     expect(first.id).not.toBe(second.id);
+    expect(first.stage).toBe("Deposit");
   });
 
   it("records a payment that posts to invoice and job", async () => {
@@ -103,13 +106,15 @@ describe("write path", () => {
     expect(after!.status).toBe("ACTIVE");
   });
 
-  it("computes the job money summary: billed, paid, outstanding, expenses, net", async () => {
+  it("computes the job money summary per the HH-02 §0 definition", async () => {
     const summary = await getJobMoneySummary(jobId);
     expect(summary.billed).toBe(1500); // 1000 + 500
     expect(summary.paid).toBe(1000);
     expect(summary.outstanding).toBe(500);
     expect(summary.expenses).toBe(400);
-    expect(summary.net).toBe(600); // paid − expenses
+    expect(summary.dougCut).toBe(0); // no permit on this job
+    expect(summary.net).toBe(1100); // billed − expenses − dougCut
+    expect(summary.inHand).toBe(600); // paid − expenses − dougPaid
   });
 
   it("flips the job to PAID when the last invoice is paid", async () => {

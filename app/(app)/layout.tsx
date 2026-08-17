@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
-import { logoutAction } from "@/lib/actions";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -13,19 +12,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <Link href="/jobs" className="text-xl font-bold text-teal-900">
           Harbor Haven
         </Link>
-        <form action={logoutAction}>
-          <button className="min-h-12 px-3 text-stone-500" type="submit">
-            Sign out
-          </button>
-        </form>
+        <Link href="/clients" className="min-h-12 px-3 py-3 text-stone-500">
+          Clients
+        </Link>
       </header>
       <main className="flex-1 px-4 pb-28">{children}</main>
       <nav className="fixed inset-x-0 bottom-0 border-t border-stone-200 bg-white">
-        <div className="mx-auto grid max-w-lg grid-cols-3">
+        <div className="mx-auto grid max-w-lg grid-cols-4">
           {[
             { href: "/jobs", label: "Jobs" },
-            { href: "/invoices", label: "Invoices" },
-            { href: "/clients", label: "Clients" },
+            { href: "/money", label: "Money" },
+            { href: "/doug", label: "Doug" },
+            { href: "/me", label: "Me" },
           ].map((t) => (
             <Link
               key={t.href}

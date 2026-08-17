@@ -68,3 +68,21 @@ export async function requireSession(): Promise<Session> {
   if (!session) throw new Error("Unauthorized");
   return session;
 }
+
+/** Change the logged-in user's own password (current password required). */
+export async function changePassword(
+  userId: number,
+  currentPassword: string,
+  newPassword: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (newPassword.length < 8) {
+    return { ok: false, error: "New password must be at least 8 characters." };
+  }
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) return { ok: false, error: "User not found." };
+  const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!ok) return { ok: false, error: "Current password is incorrect." };
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  return { ok: true };
+}

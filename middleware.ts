@@ -1,7 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 
-const PUBLIC_PATHS = ["/login"];
+// /e/ = public read-only estimate pages; the Square webhook authenticates by
+// HMAC signature, not session.
+const PUBLIC_PATHS = ["/login", "/e/", "/api/square/webhook"];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

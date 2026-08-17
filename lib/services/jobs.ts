@@ -45,6 +45,13 @@ export async function createJob(input: CreateJobInput): Promise<Job> {
     },
   });
 
+  // A permit-only job starts with its permit (and the linked payable) as the
+  // default first line.
+  if (input.type === "PERMIT_ONLY") {
+    const { addPermit } = await import("./line-items");
+    await addPermit(job.id);
+  }
+
   return job;
 }
 
@@ -84,6 +91,8 @@ export async function getJobDetail(jobId: number) {
       client: true,
       expenses: { orderBy: { createdAt: "desc" } },
       invoices: { include: { payments: true }, orderBy: { issuedAt: "asc" } },
+      lineItems: { orderBy: { createdAt: "asc" } },
+      payables: true,
       notes: { orderBy: { createdAt: "desc" } },
       history: { orderBy: { changedAt: "desc" } },
     },

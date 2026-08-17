@@ -1,8 +1,9 @@
 /**
  * Job expenses, ported from the source module's receipt logging: cost +
  * category/vendor/notes + optional receipt photo. New for Harbor Haven:
- * clientPrice (what the client is charged — defaults to cost × job markup),
- * billable flag, and the payableTo/payableAmount seam for permit payables.
+ * clientPrice (what the client is charged — defaults to cost × job markup)
+ * and a billable flag. Billable expenses can later be promoted to line items
+ * ("Add to bill"); permit payables live in the Payable table.
  */
 import { prisma } from "@/lib/db";
 import type { Expense } from "@prisma/client";
@@ -19,8 +20,6 @@ export interface AddExpenseInput {
   costDate?: Date | null;
   /** base64 data URL of the receipt photo (image or PDF) */
   photoBase64?: string | null;
-  payableTo?: string | null;
-  payableAmount?: number | null;
 }
 
 export async function addExpense(input: AddExpenseInput): Promise<Expense> {
@@ -54,8 +53,6 @@ export async function addExpense(input: AddExpenseInput): Promise<Expense> {
       costDate: input.costDate ?? null,
       photoKey,
       photoUrl,
-      payableTo: input.payableTo?.trim() || null,
-      payableAmount: input.payableAmount ?? null,
     },
   });
 }

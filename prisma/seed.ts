@@ -25,12 +25,17 @@ async function main() {
     });
   }
 
-  // Markup default — placeholder 1.2 until Chris's real number is known.
-  await prisma.appSetting.upsert({
-    where: { key: "markup_default" },
-    update: {},
-    create: { key: "markup_default", value: "1.2" },
-  });
+  // Settings — markup is a placeholder until Chris's real number is known;
+  // permit numbers are the standing deal ($1,500 to client, $500 to Doug).
+  const settings: Record<string, string> = {
+    default_markup: "1.2",
+    permit_price: "1500",
+    permit_payable: "500",
+    permit_payee_name: "Doug Prestier",
+  };
+  for (const [key, value] of Object.entries(settings)) {
+    await prisma.appSetting.upsert({ where: { key }, update: {}, create: { key, value } });
+  }
 
   // Fake test client.
   const client = await prisma.client.upsert({
@@ -63,9 +68,17 @@ async function main() {
   await prisma.statusHistory.create({
     data: { jobId: permitJob.id, toStatus: "ESTIMATE", changedBy: "seed", note: "Job created" },
   });
-  await prisma.invoice.create({
-    data: { jobId: permitJob.id, totalAmount: 1500 },
+  // The permit pattern: PERMIT line item + linked payable to Doug.
+  const permitItem = await prisma.lineItem.create({
+    data: { jobId: permitJob.id, description: "Permit", qty: 1, unitPrice: 1500, kind: "PERMIT" },
   });
+  await prisma.payable.create({
+    data: { jobId: permitJob.id, lineItemId: permitItem.id, payeeName: "Doug Prestier", amount: 500 },
+  });
+  const permitInvoice = await prisma.invoice.create({
+    data: { jobId: permitJob.id, totalAmount: 1500, stage: "Full amount" },
+  });
+  await prisma.lineItem.update({ where: { id: permitItem.id }, data: { invoiceId: permitInvoice.id } });
 
   // Project job with two expenses and one staged invoice (first of several).
   const projectJob = await prisma.job.create({
@@ -103,11 +116,22 @@ async function main() {
       },
     ],
   });
-  await prisma.invoice.create({
-    data: { jobId: projectJob.id, totalAmount: 5000 }, // first stage of staged billing
+  // First stage of staged billing: a deposit invoice with its own line item.
+  const depositInvoice = await prisma.invoice.create({
+    data: { jobId: projectJob.id, totalAmount: 5000, stage: "Deposit" },
+  });
+  await prisma.lineItem.create({
+    data: {
+      jobId: projectJob.id,
+      invoiceId: depositInvoice.id,
+      description: "Deposit — Guest bath remodel",
+      qty: 1,
+      unitPrice: 5000,
+      kind: "OTHER",
+    },
   });
 
-  console.log("Seed complete: 2 users, 1 client, 2 jobs, 2 expenses, 2 invoices.");
+  console.log("Seed complete: 2 users, 1 client, 2 jobs, 2 expenses, 2 invoices, 1 permit + payable.");
 }
 
 main()

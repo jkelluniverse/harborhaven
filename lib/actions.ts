@@ -2,12 +2,17 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { z } from "zod";
-import { login as authLogin, logout as authLogout, requireSession } from "@/lib/auth";
+import { login as authLogin, logout as authLogout, requireSession, changePassword } from "@/lib/auth";
 import { createClient, updateClient, findNearMatch } from "@/lib/services/clients";
 import { createJob, updateJobStatus, addJobNote } from "@/lib/services/jobs";
 import { addExpense } from "@/lib/services/expenses";
-import { createInvoice, recordPayment } from "@/lib/services/invoices";
+import { createInvoiceFromLineItems, createDepositInvoice, recordPayment } from "@/lib/services/invoices";
+import { addLineItem, addPermit, addExpenseToBill, removeLineItem } from "@/lib/services/line-items";
+import { markPayablePaid, undoPayablePaid } from "@/lib/services/payables";
+import { sendInvoiceViaSquare, cancelInvoiceEverywhere } from "@/lib/services/square-invoices";
+import { sendEstimate } from "@/lib/services/estimates";
 import { prisma } from "@/lib/db";
 
 export type FormState = { error?: string; confirm?: string } | null;
@@ -101,11 +106,161 @@ export async function addExpenseAction(_prev: FormState, formData: FormData): Pr
 export async function createInvoiceAction(_prev: FormState, formData: FormData): Promise<FormState> {
   await requireSession();
   const jobId = Number(formData.get("jobId"));
-  const totalAmount = Number(formData.get("totalAmount"));
-  if (!Number.isFinite(totalAmount) || totalAmount <= 0) return { error: "Enter the invoice amount." };
+  const mode = String(formData.get("mode") ?? "items");
   const dueRaw = String(formData.get("dueDate") ?? "").trim();
-  await createInvoice({ jobId, totalAmount, dueDate: dueRaw ? new Date(dueRaw) : null });
+  const stage = String(formData.get("stage") ?? "").trim() || null;
+  const dueDate = dueRaw ? new Date(dueRaw) : null;
+  try {
+    if (mode === "deposit") {
+      const amount = Number(formData.get("amount"));
+      if (!Number.isFinite(amount) || amount <= 0) return { error: "Enter the deposit amount." };
+      await createDepositInvoice({ jobId, amount, stage, dueDate });
+    } else {
+      const ids = formData.getAll("lineItemIds").map(Number).filter(Number.isInteger);
+      await createInvoiceFromLineItems({ jobId, lineItemIds: ids, stage, dueDate });
+    }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Couldn't create the invoice." };
+  }
   redirect(`/jobs/${jobId}`);
+}
+
+// ---- Line items & permits ----
+
+export async function addLineItemAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  await requireSession();
+  const jobId = Number(formData.get("jobId"));
+  const description = String(formData.get("description") ?? "").trim();
+  const unitPrice = Number(formData.get("unitPrice"));
+  const qty = Number(formData.get("qty") || 1);
+  const kind = z
+    .enum(["PERMIT", "MANAGEMENT_FEE", "MATERIALS", "LABOR", "HOME_WATCH_VISIT", "OTHER"])
+    .catch("OTHER")
+    .parse(formData.get("kind"));
+  if (!description) return { error: "Describe the line item." };
+  if (!Number.isFinite(unitPrice) || unitPrice <= 0) return { error: "Enter a price." };
+  if (!Number.isFinite(qty) || qty <= 0) return { error: "Quantity must be positive." };
+  if (kind === "PERMIT") {
+    await addPermit(jobId);
+  } else {
+    await addLineItem({ jobId, description, qty, unitPrice, kind });
+  }
+  redirect(`/jobs/${jobId}`);
+}
+
+export async function addPermitAction(jobId: number) {
+  await requireSession();
+  await addPermit(jobId);
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/doug");
+}
+
+export async function addExpenseToBillAction(jobId: number, formData: FormData) {
+  await requireSession();
+  const expenseId = Number(formData.get("expenseId"));
+  await addExpenseToBill(expenseId);
+  revalidatePath(`/jobs/${jobId}`);
+}
+
+export async function removeLineItemAction(jobId: number, formData: FormData): Promise<void> {
+  await requireSession();
+  const lineItemId = Number(formData.get("lineItemId"));
+  try {
+    await removeLineItem(lineItemId);
+  } catch (e) {
+    // Surface the plain-English block reason on the job page.
+    redirect(`/jobs/${jobId}?msg=${encodeURIComponent(e instanceof Error ? e.message : "Couldn't remove item")}`);
+  }
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/doug");
+}
+
+// ---- Doug / payables ----
+
+export async function markPayablePaidAction(formData: FormData) {
+  await requireSession();
+  const payableId = Number(formData.get("payableId"));
+  const paidVia = String(formData.get("paidVia") ?? "Other");
+  await markPayablePaid(payableId, paidVia);
+  revalidatePath("/doug");
+}
+
+export async function undoPayablePaidAction(formData: FormData) {
+  await requireSession();
+  const payableId = Number(formData.get("payableId"));
+  try {
+    await undoPayablePaid(payableId);
+  } catch {
+    // window passed — the page re-render will drop the undo button
+  }
+  revalidatePath("/doug");
+}
+
+// ---- Square invoice lifecycle ----
+
+export async function sendInvoiceAction(invoiceId: number): Promise<void> {
+  await requireSession();
+  const result = await sendInvoiceViaSquare(invoiceId);
+  revalidatePath(`/invoices/${invoiceId}`);
+  if (!result.ok) {
+    redirect(`/invoices/${invoiceId}?msg=${encodeURIComponent(result.error)}`);
+  }
+  redirect(`/invoices/${invoiceId}?msg=${encodeURIComponent("Invoice sent — Square emailed the payment link.")}`);
+}
+
+export async function cancelInvoiceAction(invoiceId: number): Promise<void> {
+  await requireSession();
+  try {
+    await cancelInvoiceEverywhere(invoiceId);
+  } catch (e) {
+    redirect(`/invoices/${invoiceId}?msg=${encodeURIComponent(e instanceof Error ? e.message : "Couldn't cancel.")}`);
+  }
+  revalidatePath(`/invoices/${invoiceId}`);
+  redirect(`/invoices/${invoiceId}?msg=${encodeURIComponent("Invoice canceled.")}`);
+}
+
+export async function markPaidOtherWayAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  await requireSession();
+  const invoiceId = Number(formData.get("invoiceId"));
+  const amount = Number(formData.get("amount"));
+  const note = String(formData.get("note") ?? "").trim();
+  if (!Number.isFinite(amount) || amount <= 0) return { error: "Enter the amount received." };
+  if (!note) return { error: "Say how it was paid (Venmo, Zelle, check, cash…)." };
+  await recordPayment({ invoiceId, amount, method: "OTHER", note });
+  const inv = await prisma.invoice.findUnique({ where: { id: invoiceId }, select: { jobId: true } });
+  revalidatePath(`/invoices/${invoiceId}`);
+  if (inv) revalidatePath(`/jobs/${inv.jobId}`);
+  return null;
+}
+
+// ---- Estimates ----
+
+export async function sendEstimateAction(jobId: number): Promise<void> {
+  await requireSession();
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
+  const proto = h.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+  const result = await sendEstimate(jobId, `${proto}://${host}`);
+  revalidatePath(`/jobs/${jobId}`);
+  const msg = !result.ok
+    ? result.error
+    : result.emailed
+      ? "Estimate emailed."
+      : `Estimate page ready — share this link: ${result.url}`;
+  redirect(`/jobs/${jobId}?msg=${encodeURIComponent(msg)}`);
+}
+
+// ---- Me / change password ----
+
+export async function changePasswordAction(_prev: FormState, formData: FormData): Promise<FormState> {
+  const session = await requireSession();
+  const result = await changePassword(
+    session.id,
+    String(formData.get("currentPassword") ?? ""),
+    String(formData.get("newPassword") ?? ""),
+  );
+  if (!result.ok) return { error: result.error };
+  return { error: undefined, confirm: "done" };
 }
 
 export async function recordPaymentAction(jobId: number, formData: FormData) {
