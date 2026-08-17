@@ -1,0 +1,155 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+}
+
+enum JobType {
+  PERMIT_ONLY
+  PROJECT
+  OTHER
+}
+
+enum JobStatus {
+  ESTIMATE
+  ACTIVE
+  DONE
+  PAID
+}
+
+enum InvoiceStatus {
+  UNPAID
+  PAID
+}
+
+enum PaymentMethod {
+  SQUARE
+  OTHER
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String
+  username     String   @unique
+  passwordHash String
+  role         Role
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Client {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  phone     String?
+  email     String?
+  notes     String?
+  jobs      Job[]
+  createdAt DateTime @default(now())
+}
+
+model Job {
+  id        Int       @id @default(autoincrement())
+  client    Client    @relation(fields: [clientId], references: [id])
+  clientId  Int
+  name      String
+  address   String
+  type      JobType
+  status    JobStatus @default(ESTIMATE)
+  // Multiplier applied to expense cost when clientPrice isn't set explicitly.
+  // Seeded app-wide default lives in AppSetting "markup_default".
+  markup    Decimal   @default(1.2) @db.Decimal(6, 3)
+  expenses  Expense[]
+  invoices  Invoice[]
+  payments  Payment[]
+  notes     JobNote[]
+  history   StatusHistory[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Expense {
+  id          Int      @id @default(autoincrement())
+  job         Job      @relation(fields: [jobId], references: [id])
+  jobId       Int
+  cost        Decimal  @db.Decimal(12, 2)
+  // What the client is charged for this expense. Defaults to cost * job.markup
+  // at creation time when not given explicitly.
+  clientPrice Decimal? @db.Decimal(12, 2)
+  billable    Boolean  @default(true)
+  category    String?
+  vendor      String?
+  notes       String?
+  costDate    DateTime?
+  // R2 object key + public URL for the receipt photo (seam: lib/storage.ts).
+  photoKey    String?
+  photoUrl    String?
+  // Seam for the permit payable pattern (e.g. the $500 GC fee paid out when a
+  // permit is pulled). No UI or ledger yet — columns only. See KNOWN-LIMITS.md.
+  payableTo     String?
+  payableAmount Decimal? @db.Decimal(12, 2)
+  createdAt   DateTime @default(now())
+}
+
+model Invoice {
+  id              Int           @id @default(autoincrement())
+  job             Job           @relation(fields: [jobId], references: [id])
+  jobId           Int
+  totalAmount     Decimal       @db.Decimal(12, 2)
+  status          InvoiceStatus @default(UNPAID)
+  dueDate         DateTime?
+  // Seam for HH-02 Square Invoices integration.
+  squareInvoiceId String?
+  payments        Payment[]
+  issuedAt        DateTime      @default(now())
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+model Payment {
+  id              Int           @id @default(autoincrement())
+  invoice         Invoice       @relation(fields: [invoiceId], references: [id])
+  invoiceId       Int
+  job             Job           @relation(fields: [jobId], references: [id])
+  jobId           Int
+  amount          Decimal       @db.Decimal(12, 2)
+  method          PaymentMethod @default(OTHER)
+  note            String?
+  // Seam for HH-02 Square webhook reconciliation.
+  squarePaymentId String?
+  paidAt          DateTime      @default(now())
+  createdAt       DateTime      @default(now())
+}
+
+model JobNote {
+  id        Int      @id @default(autoincrement())
+  job       Job      @relation(fields: [jobId], references: [id])
+  jobId     Int
+  note      String
+  author    String
+  createdAt DateTime @default(now())
+}
+
+model StatusHistory {
+  id         Int      @id @default(autoincrement())
+  job        Job      @relation(fields: [jobId], references: [id])
+  jobId      Int
+  fromStatus String?
+  toStatus   String
+  changedBy  String
+  note       String?
+  changedAt  DateTime @default(now())
+}
+
+model AppSetting {
+  key       String   @id
+  value     String?
+  updatedAt DateTime @default(now()) @updatedAt
+}

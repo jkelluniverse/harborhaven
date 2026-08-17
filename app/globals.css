@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+/* Jitterbug standard: big type, phone-first. Base ≥18px everywhere. */
+html {
+  font-size: 18px;
+}
+
+body {
+  @apply bg-stone-50 text-stone-900 antialiased;
+}
