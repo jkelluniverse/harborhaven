@@ -4,6 +4,17 @@ Honest-state log. Everything stubbed, simplified, or deliberately deferred
 lives here. "Source" below means the system this module's behavior was ported
 from. Updated for HH-02 (billing, Square Invoices, permit/Doug ledger).
 
+## Version note: Next 16 (bumped from 15.5 for a production bug)
+
+Next 15.5.23 has a router bug where a route segment named `app` combined
+with the project running in a directory named `/app` (Railway's fixed
+workdir) mounts `app/app/layout.tsx` — our session gate — around **every**
+route, redirect-looping the whole site to `/login` in production while
+behaving perfectly in any other directory. Reproduced locally by serving
+from `/app`; fixed by Next 16.3.1 with zero code changes. Follow-up chore:
+Next 16 deprecates the `middleware.ts` file convention in favor of
+`proxy.ts` (warning at build; still functional) — rename during HH-04.
+
 ## HH-03 honest state
 
 - **Testimonials are not on the site.** The copy doc says to carry the two

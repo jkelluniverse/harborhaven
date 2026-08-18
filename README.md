@@ -12,7 +12,7 @@ what was ported from the source system and what was left behind.
 
 ## Stack
 
-- Next.js 15 (App Router) + TypeScript + Tailwind CSS 4
+- Next.js 16 (App Router) + TypeScript + Tailwind CSS 4
 - Prisma + PostgreSQL (Railway)
 - Auth: single owner + one admin, bcrypt + signed session cookie (`jose`)
 - Receipt photos: Cloudflare R2 (S3 API via `aws4fetch`); optional — the app
