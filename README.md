@@ -72,7 +72,9 @@ suite against a Postgres service container on every push.
    `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_URL`.
 4. Square vars per the section above; `RESEND_API_KEY` + `RESEND_FROM` for
    estimate emails (optional — estimates fall back to a shareable link).
-5. Build command `npm run build`; start command
-   `npx prisma migrate deploy && npm run start`.
+5. Deploy the repo from GitHub (branch as configured). `railway.json` pins
+   the rest: migrations run as the pre-deploy step, start is `npm run start`,
+   healthcheck at `/api/health`. Avoid `railway up` from a local checkout —
+   it deploys whatever is on that disk, uncommitted edits included.
 6. Seed once from a shell: `npm run db:seed`, then change both passwords
    (Me tab → Change my password).
