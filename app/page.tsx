@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { QuoteForm } from "@/components/quote-form";
+import { Logo } from "@/components/logo";
 
 /* Public home page — single scrolling page built from
    docs/HH-SITE-COPY-DRAFT-1.md. Copy is used as written; edits go through
@@ -30,7 +31,7 @@ function Cta({ href = "/quote", children }: { href?: string; children: React.Rea
   return (
     <Link
       href={href}
-      className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[var(--hh-accent)] px-6 text-lg font-semibold text-white active:bg-[var(--hh-accent-dark)]"
+      className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[var(--hh-harbor)] px-6 text-lg font-semibold text-white active:bg-[var(--hh-harbor-bright)]"
     >
       {children}
     </Link>
@@ -45,7 +46,7 @@ export default function HomePage() {
       {/* Nav */}
       <header className="sticky top-0 z-10 border-b border-stone-200 bg-white/95 backdrop-blur">
         <nav className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
-          <span className="text-xl font-bold text-[var(--hh-harbor)]">Harbor Haven Home Watch</span>
+          <Logo size={44} />
           <div className="hidden gap-4 sm:flex">
             <a href="#home-watch" className="min-h-12 py-3 font-medium text-[var(--hh-harbor)]">Home Watch</a>
             <a href="#permits" className="min-h-12 py-3 font-medium text-[var(--hh-harbor)]">Permits &amp; Projects</a>
@@ -66,7 +67,13 @@ export default function HomePage() {
           </p>
           <p className="mt-4 text-base text-stone-300">{AREAS.join(" · ")}</p>
           <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Cta href="#quote">Request a quote</Cta>
+            {/* On the deep-green hero, the CTA inverts to cream for contrast. */}
+            <Link
+              href="#quote"
+              className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[var(--hh-sand)] px-6 text-lg font-semibold text-[var(--hh-harbor)] active:bg-white"
+            >
+              Request a quote
+            </Link>
             <a
               href={PHONE_HREF}
               className="inline-flex min-h-12 items-center justify-center rounded-xl border border-white px-6 text-lg font-semibold text-white"

@@ -1,12 +1,14 @@
 /* Harbor Haven palette tokens — ONE place to edit for the HH-04 rebrand.
-   Placeholder palette per the copy doc note: deep harbor blue, sand, white,
-   one warm accent. The owner app's teal is untouched until the rebrand. */
+   Values are pulled from the actual logo (deep palm green lettering and
+   roofline, cream ground, muted gold "HOME WATCH" and facade): no more
+   invented harbor blue. Fine-tune against the source file when it lands at
+   public/brand/. */
 :root {
-  --hh-harbor: #14384f; /* deep harbor blue — headings, nav, footer */
-  --hh-harbor-bright: #1d5d80; /* links, buttons */
-  --hh-sand: #f6f1e7; /* section backgrounds */
-  --hh-white: #ffffff;
-  --hh-accent: #c96f3b; /* warm accent — primary CTA */
-  --hh-accent-dark: #a95a2e;
-  --hh-ink: #22303a; /* body text on light */
+  --hh-harbor: #1c5f52; /* deep palm green — headings, nav, footer */
+  --hh-harbor-bright: #2a7a68; /* links, secondary buttons */
+  --hh-sand: #f7f1e2; /* cream ground from the logo — section backgrounds */
+  --hh-white: #fffdf8; /* warm white */
+  --hh-accent: #b8963f; /* muted gold — primary CTA */
+  --hh-accent-dark: #96782f;
+  --hh-ink: #24322d; /* body text on light */
 }

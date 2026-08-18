@@ -65,7 +65,7 @@ export function QuoteForm() {
       </div>
       <button
         type="submit"
-        className="min-h-12 rounded-xl bg-[var(--hh-accent)] px-5 text-lg font-semibold text-white active:bg-[var(--hh-accent-dark)]"
+        className="min-h-12 rounded-xl bg-[var(--hh-harbor)] px-5 text-lg font-semibold text-white active:bg-[var(--hh-harbor-bright)]"
       >
         Send request
       </button>

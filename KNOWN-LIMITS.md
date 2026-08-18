@@ -10,9 +10,14 @@ from. Updated for HH-02 (billing, Square Invoices, permit/Doug ledger).
   existing ones verbatim with Chris's OK — I don't have their text, so the
   section is deliberately omitted (placeholder comment in `app/page.tsx`).
   Never invent quotes; paste the real ones in when confirmed.
-- **Logo is a text wordmark placeholder.** The real logo JPEG wasn't
-  available in the repo; drop it at `public/brand/logo.jpg` and swap it into
-  the header/footer. Real branding is HH-04 anyway.
+- **Logo slot is wired, file still needed.** `components/logo.tsx` renders
+  `public/brand/logo.jpg` (or .png/.webp) the moment the file exists and
+  falls back to the text wordmark until then — the image Jacob shared arrived
+  as a chat preview only, not a committable file. Commit the actual file to
+  `public/brand/` (or push it via any git client); no code change needed.
+  Palette tokens were re-tuned to the real logo (deep palm green, cream,
+  muted gold); gold is decorative-only because white-on-gold fails AA
+  contrast — CTAs use the green.
 - **Public email is a placeholder** (`info@harborhavenhomewatch.com` in
   `app/page.tsx`) — the copy doc left `[email]` open. Also confirm the public
   contact name (old site says "John Mundorff").
